@@ -1,4 +1,4 @@
-# Trakt → MyDramaList
+# Trakt to MyDramaList
 
 A Tampermonkey userscript that syncs your **Trakt** watched history into your **MyDramaList (MDL)** list with one click.
 
