@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         Trakt → MyDramaList importer
 // @namespace    akumaru.trakt2mdl
-// @version      2.0.2
+// @version      2.0.3
+// @updateURL    https://raw.githubusercontent.com/akumaru1/trakt-to-mdl/main/trakt-to-mdl.user.js
+// @downloadURL  https://raw.githubusercontent.com/akumaru1/trakt-to-mdl/main/trakt-to-mdl.user.js
 // @description  One-click sync of your Trakt watched history into your MyDramaList list, split by season
 // @match        https://mydramalist.com/*
 // @run-at       document-start
