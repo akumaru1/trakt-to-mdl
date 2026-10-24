@@ -1,6 +1,6 @@
 # Trakt to MyDramaList
 
-A Tampermonkey userscript that syncs your **Trakt** watched history into your **MyDramaList (MDL)** list with one click.
+A Tampermonkey userscript that syncs your **Trakt** watched history into your **MyDramaList (MDL)** list. You preview every change first, then confirm.
 
 MDL has no import feature and no public API. This script runs inside your logged-in MDL tab. It reads your history from the Trakt API, finds each title on MDL, and adds or updates it on your list using MDL's own save request.
 
@@ -10,7 +10,7 @@ MDL has no import feature and no public API. This script runs inside your logged
 
 ## Features
 
-- **One-click sync.** Click **⟳ Sync from Trakt** and the script fetches your history, matches titles, adds new ones, updates progress and checks the result.
+- **Preview, then confirm.** **⟳ Sync from Trakt (preview)** fetches your history, matches titles and shows what would be added or updated without touching MDL. **✔ Confirm** writes it and checks the result.
 - **Asian live-action only.** Titles are filtered by Trakt's `country` field (JP, KR, CN, TW, TH, HK, PH, SG, MY, ID, VN). Western shows and anime/animation are skipped, because MDL doesn't list anime.
 - **Seasons split the way MDL does.** Trakt keeps a show as one entry with seasons. MDL lists each season as its own title. The script makes one row per season you watched and matches it by season number, year and episode count. Two seasons can never be matched to the same MDL entry.
 - **Correct status.** A season is **Completed** only if you watched every episode *and* it has finished airing. Anything else is **Currently Watching**, with the last episode you watched.
@@ -90,26 +90,31 @@ The top of the panel should now show both captures with an episode field:
 
 ## Usage
 
-Open MDL → **Trakt → MDL** → **⟳ Sync from Trakt**.
+Open MDL → **Trakt → MDL** → **⟳ Sync from Trakt (preview)**, check the rows, then click **✔ Confirm**.
 
-That's all. Each sync:
+**Sync from Trakt (preview)** only reads. It:
 
 1. Fetches your watched shows and movies from Trakt. If Trakt doesn't include per-season episode data, it rebuilds it from your episode history.
 2. Searches MDL for anything new, about one search every 1.5 s.
 3. Checks which titles are already on your MDL list.
-4. Adds confident new matches and updates entries that are behind, one every ~4 s.
-5. Checks every change against your real list.
+4. Shows what would be written: READY rows will be added, UPDATE rows will be moved forward. Nothing is sent to MDL yet.
 
-Running it again when nothing has changed sends nothing.
+Review those rows (the **Show:** filter jumps to READY), fix wrong matches or skip them, then click **✔ Confirm (N add, M update)**. Confirm:
+
+1. Re-checks your MDL list, so your edits are picked up and nothing already on the list is added twice.
+2. Adds the READY titles and updates the UPDATE entries, one every ~4 s.
+3. Checks every change against your real list.
+
+The Confirm button is disabled while there is nothing to write. Running the preview again when nothing has changed shows nothing to write.
 
 ### Row badges
 
 | Badge | Meaning |
 |---|---|
-| **READY** | Matched, will be added on the next sync |
+| **READY** | Matched, will be added when you click Confirm |
 | **REVIEW** | Several possible matches; pick one from the dropdown |
 | **NO MATCH** | Nothing found on MDL; paste the MDL URL via *Paste MDL URL…* or skip it |
-| **UPDATE** | On your list but behind Trakt; will be moved forward |
+| **UPDATE** | On your list but behind Trakt; will be moved forward when you click Confirm |
 | **DONE** | Added or updated, and confirmed on your list |
 | **ON LIST** | Already on your list and up to date |
 | **NOT ADDED** | MDL replied OK, but the title isn't on your list |
