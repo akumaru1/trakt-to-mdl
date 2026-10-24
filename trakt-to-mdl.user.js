@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Trakt → MyDramaList importer
 // @namespace    akumaru.trakt2mdl
-// @version      2.0.3
+// @version      2.1.0
 // @updateURL    https://raw.githubusercontent.com/akumaru1/trakt-to-mdl/main/trakt-to-mdl.user.js
 // @downloadURL  https://raw.githubusercontent.com/akumaru1/trakt-to-mdl/main/trakt-to-mdl.user.js
-// @description  One-click sync of your Trakt watched history into your MyDramaList list, split by season
+// @description  Preview your Trakt watched history against your MyDramaList list, then confirm to write it, split by season
 // @match        https://mydramalist.com/*
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
@@ -610,9 +610,12 @@
   }
   const updatable = () => rowsInOrder().filter((r) => r.update?.safe && r.result !== 'sent');
 
+  const missingTemplates = () => ['completed', 'watching'].filter((m) => !state.templates[m]);
+
+  /* Step 1: fetch, match and compare only. Nothing is written to MDL here. */
   async function runSync() {
     if (busy) return;
-    busy = true; stopFlag = false;
+    busy = true; stopFlag = false; render();
     try {
       setStatus('Fetching your watched history from Trakt…');
       const { rows, skipped } = await buildRowsFromTrakt(setStatus);
@@ -623,25 +626,50 @@
       await matchRows();
       if (stopFlag) { setStatus('Stopped.'); return; }
       setStatus('Checking your MDL list…');
-      if (!(await refreshListState())) { setStatus('Could not read your MDL list (logged in?). Stopped before importing.'); return; }
-      const missing = ['completed', 'watching'].filter((m) => !state.templates[m]);
+      if (!(await refreshListState())) { setStatus('Could not read your MDL list (logged in?).'); return; }
+      const adds = importable().length;
+      const ups = updatable().length;
+      const review = rowsInOrder().filter((r) => r.candidates && !/^\d+$/.test(r.choice) && r.choice !== 'skip').length;
+      if (!adds && !ups) { setStatus(`Preview: nothing to write. ${review} need review.`); return; }
+      const missing = missingTemplates();
+      const tail = missing.length
+        ? `Capture the "${missing.join('" and "')}" request first, then click Confirm.`
+        : 'Check the READY and UPDATE rows (use the Show: filter), fix or skip any wrong ones, then click Confirm.';
+      setStatus(`Preview: ${adds} to add, ${ups} to update, ${review} need review. Nothing has been written yet. ${tail}`);
+      if (filterVal === 'ALL') filterVal = adds ? 'READY' : 'UPDATE';
+    } catch (e) {
+      setStatus(`Sync failed: ${e.message}`);
+    } finally {
+      busy = false;
+      persist(); render();
+    }
+  }
+
+  /* Step 2: write the previewed adds and updates to MDL. Only runs from the Confirm button. */
+  async function confirmWrite() {
+    if (busy) return;
+    const missing = missingTemplates();
+    if (missing.length) { setStatus(`Capture the "${missing.join('" and "')}" request first.`); return; }
+    busy = true; stopFlag = false; render();
+    try {
+      // re-check so edits made during review (new match, skip, status) are reflected and nothing already on the list is re-added
+      setStatus('Re-checking your MDL list before writing…');
+      if (!(await refreshListState())) { setStatus('Could not read your MDL list (logged in?). Nothing written.'); return; }
       const adds = importable();
       const ups = updatable();
-      if (missing.length && (adds.length || ups.length)) {
-        setStatus(`Matched. Capture the "${missing.join('" and "')}" request first (buttons 2a/2b), then click Sync again.`);
-        return;
-      }
+      if (!adds.length && !ups.length) { setStatus('Nothing to write.'); return; }
       const a = await sendRows(adds, 'Adding');
-      const u = await sendRows(ups, 'Updating');
+      const u = stopFlag ? { ok: 0, fail: 0 } : await sendRows(ups, 'Updating');
       setStatus('Verifying against your MDL list…');
       await refreshListState();
       const done = rowsInOrder().filter((r) => r.result === 'done').length;
       const notAdded = rowsInOrder().filter((r) => /^not added/.test(r.result)).length;
       const review = rowsInOrder().filter((r) => r.candidates && !/^\d+$/.test(r.choice) && r.choice !== 'skip').length;
       const manualUp = rowsInOrder().filter((r) => r.update && !r.update.safe).length;
-      setStatus(`Sync done: ${a.ok} added, ${u.ok} updated, ${a.fail + u.fail} errors, ${notAdded} not confirmed. ${review} need review, ${manualUp} need a manual update. (${done} confirmed in total)`);
+      setStatus(`${stopFlag ? 'Stopped. ' : ''}Written: ${a.ok} added, ${u.ok} updated, ${a.fail + u.fail} errors, ${notAdded} not confirmed. ${review} need review, ${manualUp} need a manual update. (${done} confirmed in total)`);
+      filterVal = 'ALL';
     } catch (e) {
-      setStatus(`Sync failed: ${e.message}`);
+      setStatus(`Write failed: ${e.message}`);
     } finally {
       busy = false;
       persist(); render();
@@ -815,6 +843,12 @@
       info.append(c);
     }
 
+    const cbtn = panel.querySelector('[data-a="confirm"]');
+    const nAdd = importable().length, nUp = updatable().length;
+    cbtn.textContent = `✔ Confirm (${nAdd} add, ${nUp} update)`;
+    cbtn.disabled = busy || !(nAdd + nUp);
+    panel.querySelector('[data-a="sync"]').disabled = busy;
+
     const order = ['READY', 'UPDATE', 'BEHIND', 'REVIEW', 'NO', 'NEW', 'SENT', 'DONE', 'NOT', 'ERROR', 'ON', 'SKIP'];
     const names = { NO: 'NO MATCH', NOT: 'NOT ADDED', ON: 'ON LIST', BEHIND: 'BEHIND' };
     const fsel = panel.querySelector(`.${NS}-filter`);
@@ -837,6 +871,7 @@
       .${NS}-bar button,.${NS}-mini{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px 10px;cursor:pointer;font:inherit}
       .${NS}-mini{padding:1px 8px;margin:2px 4px 2px 0}
       .${NS}-bar button.primary{background:#238636;border-color:#2ea043}
+      .${NS}-bar button:disabled{opacity:.45;cursor:not-allowed}
       .${NS}-tpl{padding:6px 10px;font:11px/1.5 ui-monospace,monospace;color:#8b949e;border-bottom:1px solid #30363d;word-break:break-all}
       .${NS}-status{padding:6px 10px;color:#58a6ff}
       .${NS}-counts{padding:0 10px 6px;color:#8b949e;font-size:12px}
@@ -859,7 +894,8 @@
     panel.innerHTML = `
       <div class="${NS}-bar">
         <b style="margin-right:8px">Trakt → MDL</b>
-        <button data-a="sync" class="primary">⟳ Sync from Trakt</button>
+        <button data-a="sync">⟳ Sync from Trakt (preview)</button>
+        <button data-a="confirm" class="primary">✔ Confirm</button>
         <button data-a="stop">Stop</button>
         <button data-a="settings">Settings</button>
         <button data-a="arm-completed">Capture "Completed"</button>
@@ -873,7 +909,7 @@
         <button data-a="close">✕</button>
       </div>
       <div class="${NS}-tpl"></div>
-      <div class="${NS}-status">Click "Sync from Trakt".</div>
+      <div class="${NS}-status">Click "Sync from Trakt" to preview. Nothing is written until you click Confirm.</div>
       <div class="${NS}-counts"></div>
       <div class="${NS}-wrap"><table><tbody></tbody></table></div>`;
     statusEl = panel.querySelector(`.${NS}-status`);
@@ -890,6 +926,7 @@
       const a = btn.dataset.a;
       if (a === 'close') panel.classList.remove('open');
       if (a === 'sync') runSync();
+      if (a === 'confirm') confirmWrite();
       if (a === 'stop') { stopFlag = true; setStatus('Stopping after current item…'); }
       if (a === 'settings') openSettings();
       if (a === 'arm-completed') arm('completed');
